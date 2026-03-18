@@ -20,9 +20,12 @@ bevy = { version = "0.15", default-features = false, features = [
     "png",
 ] }
 
-# getrandom needs the `wasm_js` feature to use the browser's crypto API on WASM.
+# Both getrandom 0.2 (used by bevy_utils/uuid/rand) and getrandom 0.3 (used by
+# ahash via runtime-rng) must have their browser-crypto feature enabled, or they
+# will panic when the game tries to seed hashers / generate UUIDs in WASM.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-getrandom = { version = "0.3", features = ["wasm_js"] }
+getrandom    = { version = "0.2", features = ["js"] }
+getrandom_v3 = { package = "getrandom", version = "0.3", features = ["wasm_js"] }
 
 # Optimize WASM output size
 [profile.release]
