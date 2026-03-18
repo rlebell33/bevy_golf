@@ -253,22 +253,18 @@ fn setup_ui(mut commands: Commands) {
 
 fn setup_first_hole(
     mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
     mut game_data: ResMut<GameData>,
 ) {
     let configs = hole_configs();
     game_data.strokes = vec![0u32; TOTAL_HOLES];
     game_data.par = configs.iter().map(|h| h.par).collect();
-    spawn_hole(&mut commands, &mut meshes, &mut materials, 0);
+    spawn_hole(&mut commands, 0);
 }
 
 // ─── Hole spawn / despawn ────────────────────────────────────────────────────
 
 fn spawn_hole(
     commands: &mut Commands,
-    meshes: &mut ResMut<Assets<Mesh>>,
-    materials: &mut ResMut<Assets<ColorMaterial>>,
     hole_idx: usize,
 ) {
     let configs = hole_configs();
@@ -308,8 +304,11 @@ fn spawn_hole(
 
     // Hole cup (black circle) ───────────────────────────────────────────────
     commands.spawn((
-        Mesh2d(meshes.add(Circle::new(HOLE_R))),
-        MeshMaterial2d(materials.add(ColorMaterial::from(COLOR_HOLE))),
+        Sprite {
+            color: COLOR_HOLE,
+            custom_size: Some(Vec2::splat(HOLE_R * 2.0)),
+            ..default()
+        },
         Transform::from_xyz(h.hole_pos.x, h.hole_pos.y, 0.5),
         CourseEntity,
         GolfHole { pos: h.hole_pos },
@@ -339,8 +338,11 @@ fn spawn_hole(
 
     // Ball (white circle) ───────────────────────────────────────────────────
     commands.spawn((
-        Mesh2d(meshes.add(Circle::new(BALL_R))),
-        MeshMaterial2d(materials.add(ColorMaterial::from(COLOR_BALL))),
+        Sprite {
+            color: COLOR_BALL,
+            custom_size: Some(Vec2::splat(BALL_R * 2.0)),
+            ..default()
+        },
         Transform::from_xyz(h.ball_start.x, h.ball_start.y, 2.0),
         CourseEntity,
         Ball {
@@ -635,8 +637,6 @@ fn tick_transition(
     mut next_state: ResMut<NextState<GameState>>,
     course_q: Query<Entity, With<CourseEntity>>,
     msg_q: Query<Entity, With<MessageText>>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
     timer.0.tick(time.delta());
     if !timer.0.finished() {
@@ -660,7 +660,7 @@ fn tick_transition(
             commands.entity(e).despawn();
         }
         game_data.current_hole = next_hole;
-        spawn_hole(&mut commands, &mut meshes, &mut materials, next_hole);
+        spawn_hole(&mut commands, next_hole);
         next_state.set(GameState::Playing);
     }
 }
