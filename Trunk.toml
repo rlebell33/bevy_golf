@@ -1,0 +1,5 @@
+[build]
+# Output directory for the compiled WASM bundle.
+dist = "dist"
+# Use relative paths so the site works at any base URL (required for GitHub Pages sub-paths).
+public_url = "./"

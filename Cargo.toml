@@ -1,0 +1,38 @@
+[package]
+name = "bevy_golf"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bevy = { version = "0.15", default-features = false, features = [
+    "bevy_asset",
+    "bevy_color",
+    "bevy_core_pipeline",
+    "bevy_render",
+    "bevy_sprite",
+    "bevy_text",
+    "bevy_ui",
+    "bevy_winit",
+    "bevy_state",
+    "default_font",
+    "webgl2",
+    "x11",
+    "png",
+] }
+
+# getrandom needs the `wasm_js` feature to use the browser's crypto API on WASM.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.3", features = ["wasm_js"] }
+
+# Optimize WASM output size
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+
+[profile.dev]
+opt-level = 1
+
+# Speed up compile times for dependencies in debug mode
+[profile.dev.package."*"]
+opt-level = 3
