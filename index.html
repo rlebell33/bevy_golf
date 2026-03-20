@@ -4,8 +4,15 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Bevy Golf 🏌️</title>
-  <!-- Enable cross-origin isolation via service worker (required for SharedArrayBuffer on GitHub Pages) -->
-  <script src="coi-serviceworker.js"></script>
+  <!-- Enable cross-origin isolation via service worker (required for SharedArrayBuffer on GitHub Pages).
+       Skip on localhost to avoid interfering with trunk serve. -->
+  <script>
+    if (window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {
+      var s = document.createElement("script");
+      s.src = "coi-serviceworker.js";
+      document.head.appendChild(s);
+    }
+  </script>
   <!-- Trunk will replace this link with the compiled WASM + JS bundle -->
   <link data-trunk rel="rust" data-wasm-opt="z" />
   <!-- Copy coi-serviceworker.js into the dist output unchanged -->
