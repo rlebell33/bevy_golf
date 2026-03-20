@@ -4,8 +4,12 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Bevy Golf 🏌️</title>
+  <!-- Enable cross-origin isolation via service worker (required for SharedArrayBuffer on GitHub Pages) -->
+  <script src="coi-serviceworker.js"></script>
   <!-- Trunk will replace this link with the compiled WASM + JS bundle -->
   <link data-trunk rel="rust" data-wasm-opt="z" />
+  <!-- Copy coi-serviceworker.js into the dist output unchanged -->
+  <link data-trunk rel="copy-file" href="coi-serviceworker.js" />
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body {
