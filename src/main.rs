@@ -7,7 +7,7 @@
 //!
 //! There are 3 holes, each with increasing difficulty.
 
-use bevy::{prelude::*, window::PrimaryWindow};
+use bevy::{audio::{PlaybackMode, Volume}, prelude::*, window::PrimaryWindow};
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -105,7 +105,23 @@ struct ScoreText;
 #[derive(Component)]
 struct MessageText;
 
+/// Marks the volume HUD text.
+#[derive(Component)]
+struct VolumeText;
+
 // ─── Resources ───────────────────────────────────────────────────────────────
+
+#[derive(Resource)]
+struct MusicVolume {
+    volume: f32,
+    muted: bool,
+}
+
+impl Default for MusicVolume {
+    fn default() -> Self {
+        Self { volume: 0.5, muted: false }
+    }
+}
 
 #[derive(Resource, Default)]
 struct GameData {
@@ -185,6 +201,7 @@ fn main() {
         }))
         .init_state::<GameState>()
         .init_resource::<GameData>()
+        .init_resource::<MusicVolume>()
         // ── Startup ─────────────────────────────────────────────────────────
         .add_systems(
             Startup,
@@ -197,6 +214,8 @@ fn main() {
                 aim_and_shoot.run_if(in_state(GameState::Playing)),
                 move_ball.run_if(in_state(GameState::Playing)),
                 update_score_text,
+                volume_control,
+                update_volume_text,
             ),
         )
         // ── Transition countdown ─────────────────────────────────────────────
@@ -219,7 +238,11 @@ fn setup_camera(mut commands: Commands) {
 fn setup_music(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.spawn((
         AudioPlayer::new(asset_server.load("murderTrain.ogg")),
-        PlaybackSettings::LOOP,
+        PlaybackSettings {
+            mode: PlaybackMode::Loop,
+            volume: Volume(0.5),
+            ..default()
+        },
     ));
 }
 
@@ -248,13 +271,25 @@ fn setup_ui(mut commands: Commands) {
 
     // Hint text at the bottom
     commands.spawn((
-        Text2d::new("Point cursor at target and click to shoot"),
+        Text2d::new("Click to shoot  |  [ ] volume  |  M mute"),
         TextFont {
             font_size: 15.0,
             ..default()
         },
         TextColor(Color::srgba(1.0, 1.0, 1.0, 0.6)),
         Transform::from_xyz(0.0, -270.0, 10.0),
+    ));
+
+    // Volume indicator (top-right)
+    commands.spawn((
+        Text2d::new("♪ 50%"),
+        TextFont {
+            font_size: 16.0,
+            ..default()
+        },
+        TextColor(Color::srgba(1.0, 1.0, 1.0, 0.7)),
+        Transform::from_xyz(330.0, 270.0, 10.0),
+        VolumeText,
     ));
 }
 
@@ -597,6 +632,53 @@ fn update_score_text(
         par,
         strokes,
     );
+}
+
+// ─── Volume control ──────────────────────────────────────────────────────────
+
+fn volume_control(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    music_q: Query<&AudioSink>,
+    mut vol: ResMut<MusicVolume>,
+) {
+    let changed = if keyboard.just_pressed(KeyCode::BracketLeft) {
+        vol.volume = (vol.volume - 0.1).max(0.0);
+        vol.muted = false;
+        true
+    } else if keyboard.just_pressed(KeyCode::BracketRight) {
+        vol.volume = (vol.volume + 0.1).min(1.0);
+        vol.muted = false;
+        true
+    } else if keyboard.just_pressed(KeyCode::KeyM) {
+        vol.muted = !vol.muted;
+        true
+    } else {
+        false
+    };
+
+    if changed {
+        let effective = if vol.muted { 0.0 } else { vol.volume };
+        for sink in &music_q {
+            sink.set_volume(effective);
+        }
+    }
+}
+
+fn update_volume_text(
+    vol: Res<MusicVolume>,
+    mut text_q: Query<&mut Text2d, With<VolumeText>>,
+) {
+    if !vol.is_changed() {
+        return;
+    }
+    let Ok(mut text) = text_q.get_single_mut() else {
+        return;
+    };
+    text.0 = if vol.muted {
+        "♪ OFF".to_string()
+    } else {
+        format!("♪ {}%", (vol.volume * 100.0).round() as u32)
+    };
 }
 
 // ─── Hole-complete callback ───────────────────────────────────────────────────
