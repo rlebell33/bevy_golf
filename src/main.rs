@@ -188,7 +188,7 @@ fn main() {
         // ── Startup ─────────────────────────────────────────────────────────
         .add_systems(
             Startup,
-            (setup_camera, setup_background, setup_ui, setup_first_hole).chain(),
+            (setup_camera, setup_background, setup_ui, setup_first_hole, setup_music).chain(),
         )
         // ── Per-frame (Playing) ──────────────────────────────────────────────
         .add_systems(
@@ -214,6 +214,13 @@ fn main() {
 
 fn setup_camera(mut commands: Commands) {
     commands.spawn(Camera2d);
+}
+
+fn setup_music(mut commands: Commands, asset_server: Res<AssetServer>) {
+    commands.spawn((
+        AudioPlayer::new(asset_server.load("murderTrain.ogg")),
+        PlaybackSettings::LOOP,
+    ));
 }
 
 fn setup_background(mut commands: Commands) {
