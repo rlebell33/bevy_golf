@@ -116,6 +116,11 @@ struct VolumeText;
 #[derive(Component)]
 struct BackgroundEntity;
 
+/// Flips to true after the first user gesture so pulse_to_music only
+/// runs once the music is actually playing.
+#[derive(Resource, Default)]
+struct MusicPlaying(bool);
+
 // ─── Resources ───────────────────────────────────────────────────────────────
 
 #[derive(Resource)]
@@ -217,6 +222,7 @@ fn main() {
         .init_state::<GameState>()
         .init_resource::<GameData>()
         .init_resource::<MusicVolume>()
+        .init_resource::<MusicPlaying>()
         // ── Startup ─────────────────────────────────────────────────────────
         .add_systems(
             Startup,
@@ -231,7 +237,8 @@ fn main() {
                 update_score_text,
                 volume_control,
                 update_volume_text,
-                pulse_to_music,
+                detect_music_start,
+                pulse_to_music.run_if(|mp: Res<MusicPlaying>| mp.0),
             ),
         )
         // ── Transition countdown ─────────────────────────────────────────────
@@ -653,6 +660,19 @@ fn update_score_text(
 
 // ─── Music-reactive visuals ──────────────────────────────────────────────────
 
+fn detect_music_start(
+    mut music_playing: ResMut<MusicPlaying>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    keyboard: Res<ButtonInput<KeyCode>>,
+) {
+    if music_playing.0 { return; }
+    if mouse.get_just_pressed().next().is_some()
+        || keyboard.get_just_pressed().next().is_some()
+    {
+        music_playing.0 = true;
+    }
+}
+
 fn pulse_to_music(
     time: Res<Time>,
     mut bg_q: Query<
@@ -666,6 +686,14 @@ fn pulse_to_music(
     mut obstacle_q: Query<
         (&mut Sprite, &mut Transform),
         (With<ObstacleColl>, Without<CourseColl>, Without<BackgroundEntity>),
+    >,
+    mut ball_q: Query<
+        (&mut Sprite, &mut Transform),
+        (With<Ball>, Without<BackgroundEntity>, Without<CourseColl>, Without<ObstacleColl>, Without<GolfHole>),
+    >,
+    mut hole_q: Query<
+        (&mut Sprite, &mut Transform),
+        (With<GolfHole>, Without<BackgroundEntity>, Without<CourseColl>, Without<ObstacleColl>, Without<Ball>),
     >,
 ) {
     let t = time.elapsed_secs();
@@ -703,6 +731,24 @@ fn pulse_to_music(
         );
         let scale = 1.0 + beat * 0.10;
         transform.scale = Vec3::new(scale, scale, 1.0);
+    }
+
+    // Ball: scale pop + warm white-to-gold tint
+    for (mut sprite, mut transform) in &mut ball_q {
+        sprite.color = Color::srgb(
+            1.0,
+            1.0 - beat * 0.15,
+            1.0 - beat * 0.55,
+        );
+        let scale = 1.0 + beat * 0.20;
+        transform.scale = Vec3::splat(scale);
+    }
+
+    // Hole cup: purple glow + scale pulse
+    for (mut sprite, mut transform) in &mut hole_q {
+        sprite.color = Color::srgb(beat * 0.45, 0.0, beat * 0.55);
+        let scale = 1.0 + beat * 0.15;
+        transform.scale = Vec3::splat(scale);
     }
 }
 
