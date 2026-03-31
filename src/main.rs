@@ -128,6 +128,11 @@ impl Default for MusicVolume {
 #[derive(Resource, Default)]
 struct AudioStarted(bool);
 
+/// Holds the preloaded audio handle so it is ready to play the moment
+/// the user first interacts with the page.
+#[derive(Resource)]
+struct MusicHandle(Handle<AudioSource>);
+
 #[derive(Resource, Default)]
 struct GameData {
     current_hole: usize,
@@ -251,15 +256,11 @@ fn setup_camera(mut commands: Commands) {
 }
 
 fn setup_music(mut commands: Commands, asset_server: Res<AssetServer>) {
-    commands.spawn((
-        AudioPlayer::new(asset_server.load("murderTrain.ogg")),
-        PlaybackSettings {
-            mode: PlaybackMode::Loop,
-            volume: Volume::new(0.5),
-            paused: true,
-            ..default()
-        },
-    ));
+    // Only preload the asset — do NOT spawn AudioPlayer yet.
+    // The AudioContext must not be created until after a user gesture
+    // or browsers will suspend it and music will never play.
+    let handle = asset_server.load("murderTrain.ogg");
+    commands.insert_resource(MusicHandle(handle));
 }
 
 fn setup_background(mut commands: Commands) {
@@ -656,7 +657,9 @@ fn start_music_on_interaction(
     mut started: ResMut<AudioStarted>,
     mouse: Res<ButtonInput<MouseButton>>,
     keyboard: Res<ButtonInput<KeyCode>>,
-    music_q: Query<&AudioSink>,
+    mut commands: Commands,
+    music_handle: Res<MusicHandle>,
+    vol: Res<MusicVolume>,
 ) {
     if started.0 {
         return;
@@ -664,9 +667,16 @@ fn start_music_on_interaction(
     let interacted = mouse.get_just_pressed().next().is_some()
         || keyboard.get_just_pressed().next().is_some();
     if interacted {
-        for sink in &music_q {
-            sink.play();
-        }
+        // Spawn the AudioPlayer here, after a user gesture, so the browser
+        // creates the AudioContext in an allowed (resumed) state.
+        commands.spawn((
+            AudioPlayer::new(music_handle.0.clone()),
+            PlaybackSettings {
+                mode: PlaybackMode::Loop,
+                volume: Volume::new(vol.volume),
+                ..default()
+            },
+        ));
         started.0 = true;
     }
 }
