@@ -33,6 +33,9 @@ const MAX_SPEED: f32 = 620.0;
 
 const TOTAL_HOLES: usize = 3;
 
+/// BPM of the background track — controls how fast the visuals pulse.
+const PULSE_BPM: f32 = 120.0;
+
 // ─── Colours ────────────────────────────────────────────────────────────────
 
 const COLOR_BG: Color = Color::srgb(0.05, 0.20, 0.05);
@@ -108,6 +111,10 @@ struct MessageText;
 /// Marks the volume HUD text.
 #[derive(Component)]
 struct VolumeText;
+
+/// Marks the persistent background sprite so the pulse system can find it.
+#[derive(Component)]
+struct BackgroundEntity;
 
 // ─── Resources ───────────────────────────────────────────────────────────────
 
@@ -224,6 +231,7 @@ fn main() {
                 update_score_text,
                 volume_control,
                 update_volume_text,
+                pulse_to_music,
             ),
         )
         // ── Transition countdown ─────────────────────────────────────────────
@@ -262,6 +270,7 @@ fn setup_background(mut commands: Commands) {
             ..default()
         },
         Transform::from_xyz(0.0, 0.0, -10.0),
+        BackgroundEntity,
     ));
 }
 
@@ -640,6 +649,55 @@ fn update_score_text(
         par,
         strokes,
     );
+}
+
+// ─── Music-reactive visuals ──────────────────────────────────────────────────
+
+fn pulse_to_music(
+    time: Res<Time>,
+    mut bg_q: Query<(&mut Sprite, &mut Transform), With<BackgroundEntity>>,
+    mut fairway_q: Query<&mut Sprite, (With<CourseColl>, Without<ObstacleColl>)>,
+    mut obstacle_q: Query<
+        (&mut Sprite, &mut Transform),
+        (With<ObstacleColl>, Without<CourseColl>, Without<BackgroundEntity>),
+    >,
+) {
+    let t = time.elapsed_secs();
+    let freq = PULSE_BPM / 60.0;
+    // powf(4) sharpens the sine peak into a quick "thump" rather than a
+    // smooth wave, so the pulse feels more like a real beat hit.
+    let beat = ((t * freq * std::f32::consts::TAU).sin() * 0.5 + 0.5).powf(4.0);
+
+    // Background: brightness flash + very subtle scale breathe
+    for (mut sprite, mut transform) in &mut bg_q {
+        sprite.color = Color::srgb(
+            COLOR_BG.to_srgba().red   + beat * 0.05,
+            COLOR_BG.to_srgba().green + beat * 0.10,
+            COLOR_BG.to_srgba().blue  + beat * 0.07,
+        );
+        let scale = 1.0 + beat * 0.02;
+        transform.scale = Vec3::splat(scale);
+    }
+
+    // Fairway: green brightness pulse
+    for mut sprite in &mut fairway_q {
+        sprite.color = Color::srgb(
+            COLOR_COURSE.to_srgba().red   + beat * 0.08,
+            COLOR_COURSE.to_srgba().green + beat * 0.14,
+            COLOR_COURSE.to_srgba().blue  + beat * 0.08,
+        );
+    }
+
+    // Obstacles: warm colour shift + scale pop
+    for (mut sprite, mut transform) in &mut obstacle_q {
+        sprite.color = Color::srgb(
+            COLOR_OBSTACLE.to_srgba().red   + beat * 0.25,
+            COLOR_OBSTACLE.to_srgba().green + beat * 0.08,
+            COLOR_OBSTACLE.to_srgba().blue  + beat * 0.02,
+        );
+        let scale = 1.0 + beat * 0.10;
+        transform.scale = Vec3::new(scale, scale, 1.0);
+    }
 }
 
 // ─── Volume control ──────────────────────────────────────────────────────────
