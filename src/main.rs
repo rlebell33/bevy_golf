@@ -289,7 +289,7 @@ fn setup_ui(mut commands: Commands) {
             ..default()
         },
         TextColor(COLOR_TEXT),
-        Transform::from_xyz(-220.0, 270.0, 10.0),
+        Transform::from_xyz(0.0, 270.0, 10.0),
         ScoreText,
     ));
 
