@@ -123,6 +123,11 @@ impl Default for MusicVolume {
     }
 }
 
+/// Tracks whether the music has been started after a user gesture.
+/// Browsers block AudioContext until the user interacts with the page.
+#[derive(Resource, Default)]
+struct AudioStarted(bool);
+
 #[derive(Resource, Default)]
 struct GameData {
     current_hole: usize,
@@ -210,6 +215,7 @@ fn main() {
         .init_state::<GameState>()
         .init_resource::<GameData>()
         .init_resource::<MusicVolume>()
+        .init_resource::<AudioStarted>()
         // ── Startup ─────────────────────────────────────────────────────────
         .add_systems(
             Startup,
@@ -224,6 +230,7 @@ fn main() {
                 update_score_text,
                 volume_control,
                 update_volume_text,
+                start_music_on_interaction,
             ),
         )
         // ── Transition countdown ─────────────────────────────────────────────
@@ -249,6 +256,7 @@ fn setup_music(mut commands: Commands, asset_server: Res<AssetServer>) {
         PlaybackSettings {
             mode: PlaybackMode::Loop,
             volume: Volume::new(0.5),
+            paused: true,
             ..default()
         },
     ));
@@ -643,6 +651,25 @@ fn update_score_text(
 }
 
 // ─── Volume control ──────────────────────────────────────────────────────────
+
+fn start_music_on_interaction(
+    mut started: ResMut<AudioStarted>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    keyboard: Res<ButtonInput<KeyCode>>,
+    music_q: Query<&AudioSink>,
+) {
+    if started.0 {
+        return;
+    }
+    let interacted = mouse.get_just_pressed().next().is_some()
+        || keyboard.get_just_pressed().next().is_some();
+    if interacted {
+        for sink in &music_q {
+            sink.play();
+        }
+        started.0 = true;
+    }
+}
 
 fn volume_control(
     keyboard: Res<ButtonInput<KeyCode>>,
