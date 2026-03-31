@@ -7,7 +7,7 @@
 //!
 //! There are 3 holes, each with increasing difficulty.
 
-use bevy::{audio::{PlaybackMode, Volume}, prelude::*, window::PrimaryWindow};
+use bevy::{asset::AssetMetaCheck, audio::{PlaybackMode, Volume}, prelude::*, window::PrimaryWindow};
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -189,16 +189,24 @@ fn hole_configs() -> [HoleConfig; TOTAL_HOLES] {
 
 fn main() {
     App::new()
-        .add_plugins(DefaultPlugins.set(WindowPlugin {
-            primary_window: Some(Window {
-                title: "Bevy Golf 🏌️".into(),
-                resolution: (WINDOW_W, WINDOW_H).into(),
-                // The HTML canvas element targeted by Trunk / wasm-bindgen.
-                canvas: Some("#bevy".into()),
+        .add_plugins(DefaultPlugins
+            .set(WindowPlugin {
+                primary_window: Some(Window {
+                    title: "Bevy Golf 🏌️".into(),
+                    resolution: (WINDOW_W, WINDOW_H).into(),
+                    // The HTML canvas element targeted by Trunk / wasm-bindgen.
+                    canvas: Some("#bevy".into()),
+                    ..default()
+                }),
                 ..default()
-            }),
-            ..default()
-        }))
+            })
+            .set(AssetPlugin {
+                // Prevent 404 errors on static hosts (GitHub Pages) by never
+                // requesting .meta sidecar files alongside assets.
+                meta_check: AssetMetaCheck::Never,
+                ..default()
+            })
+        )
         .init_state::<GameState>()
         .init_resource::<GameData>()
         .init_resource::<MusicVolume>()
