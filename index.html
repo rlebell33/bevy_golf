@@ -4,19 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Bevy Golf 🏌️</title>
-  <!-- Enable cross-origin isolation via service worker (required for SharedArrayBuffer on GitHub Pages).
-       Skip on localhost to avoid interfering with trunk serve. -->
-  <script>
-    if (window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {
-      var s = document.createElement("script");
-      s.src = "coi-serviceworker.js";
-      document.head.appendChild(s);
-    }
-  </script>
   <!-- Trunk will replace this link with the compiled WASM + JS bundle -->
   <link data-trunk rel="rust" data-wasm-opt="z" />
-  <!-- Copy coi-serviceworker.js into the dist output unchanged -->
-  <link data-trunk rel="copy-file" href="coi-serviceworker.js" />
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body {
@@ -32,6 +21,8 @@
     }
     #bevy {
       display: block;
+      width: 800px;
+      height: 600px;
       /* Keep the canvas crisp on high-DPI screens */
       image-rendering: pixelated;
     }
@@ -43,7 +34,7 @@
   </style>
 </head>
 <body>
-  <canvas id="bevy"></canvas>
+  <canvas id="bevy" width="800" height="600"></canvas>
   <div id="info">Bevy Golf — built with Rust 🦀 &amp; Bevy</div>
 </body>
 </html>
