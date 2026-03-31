@@ -655,8 +655,14 @@ fn update_score_text(
 
 fn pulse_to_music(
     time: Res<Time>,
-    mut bg_q: Query<(&mut Sprite, &mut Transform), With<BackgroundEntity>>,
-    mut fairway_q: Query<&mut Sprite, (With<CourseColl>, Without<ObstacleColl>)>,
+    mut bg_q: Query<
+        (&mut Sprite, &mut Transform),
+        (With<BackgroundEntity>, Without<CourseColl>, Without<ObstacleColl>),
+    >,
+    mut fairway_q: Query<
+        &mut Sprite,
+        (With<CourseColl>, Without<ObstacleColl>, Without<BackgroundEntity>),
+    >,
     mut obstacle_q: Query<
         (&mut Sprite, &mut Transform),
         (With<ObstacleColl>, Without<CourseColl>, Without<BackgroundEntity>),
