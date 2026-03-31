@@ -248,7 +248,7 @@ fn setup_music(mut commands: Commands, asset_server: Res<AssetServer>) {
         AudioPlayer::new(asset_server.load("murderTrain.ogg")),
         PlaybackSettings {
             mode: PlaybackMode::Loop,
-            volume: Volume(0.5),
+            volume: Volume::new(0.5),
             ..default()
         },
     ));
