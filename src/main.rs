@@ -108,9 +108,12 @@ struct ScoreText;
 #[derive(Component)]
 struct MessageText;
 
-/// Marks the volume HUD text.
-#[derive(Component)]
-struct VolumeText;
+/// Marks the three on-screen volume buttons and their display text.
+#[derive(Component)] struct VolumeDownButton;
+#[derive(Component)] struct VolumeMuteButton;
+#[derive(Component)] struct VolumeUpButton;
+/// The text child inside the mute/display button that shows current level.
+#[derive(Component)] struct VolumeDisplayText;
 
 /// Marks the persistent background sprite so the pulse system can find it.
 #[derive(Component)]
@@ -236,6 +239,8 @@ fn main() {
                 move_ball.run_if(in_state(GameState::Playing)),
                 update_score_text,
                 volume_control,
+                volume_button_interaction,
+                volume_button_visual,
                 update_volume_text,
                 detect_music_start,
                 pulse_to_music.run_if(|mp: Res<MusicPlaying>| mp.0),
@@ -295,7 +300,7 @@ fn setup_ui(mut commands: Commands) {
 
     // Hint text at the bottom
     commands.spawn((
-        Text2d::new("Click to shoot  |  [ ] volume  |  M mute"),
+        Text2d::new("Tap/click to shoot  |  M = mute"),
         TextFont {
             font_size: 15.0,
             ..default()
@@ -304,17 +309,95 @@ fn setup_ui(mut commands: Commands) {
         Transform::from_xyz(0.0, -270.0, 10.0),
     ));
 
-    // Volume indicator (top-right)
-    commands.spawn((
-        Text2d::new("♪ 50%"),
-        TextFont {
-            font_size: 16.0,
+    // ── Volume buttons (Bevy UI — respond to both click and touch) ──────────
+    // Layout: [−]  [♪ 50%]  [+]  anchored to the top-right corner.
+    commands
+        .spawn(Node {
+            position_type: PositionType::Absolute,
+            right: Val::Px(8.0),
+            top: Val::Px(8.0),
+            flex_direction: FlexDirection::Row,
+            column_gap: Val::Px(4.0),
+            align_items: AlignItems::Center,
             ..default()
-        },
-        TextColor(Color::srgba(1.0, 1.0, 1.0, 0.7)),
-        Transform::from_xyz(330.0, 270.0, 10.0),
-        VolumeText,
-    ));
+        })
+        .with_children(|parent| {
+            // ── Vol-down button ─────────────────────────────────────────────
+            parent
+                .spawn((
+                    Button,
+                    Node {
+                        width: Val::Px(32.0),
+                        height: Val::Px(32.0),
+                        justify_content: JustifyContent::Center,
+                        align_items: AlignItems::Center,
+                        border: UiRect::all(Val::Px(1.0)),
+                        ..default()
+                    },
+                    BorderColor(Color::srgba(1.0, 1.0, 1.0, 0.4)),
+                    BorderRadius::all(Val::Px(5.0)),
+                    BackgroundColor(Color::srgba(0.1, 0.1, 0.1, 0.75)),
+                    VolumeDownButton,
+                ))
+                .with_children(|btn| {
+                    btn.spawn((
+                        Text::new("−"),
+                        TextFont { font_size: 20.0, ..default() },
+                        TextColor(COLOR_TEXT),
+                    ));
+                });
+
+            // ── Display / mute button ───────────────────────────────────────
+            parent
+                .spawn((
+                    Button,
+                    Node {
+                        width: Val::Px(68.0),
+                        height: Val::Px(32.0),
+                        justify_content: JustifyContent::Center,
+                        align_items: AlignItems::Center,
+                        border: UiRect::all(Val::Px(1.0)),
+                        ..default()
+                    },
+                    BorderColor(Color::srgba(1.0, 1.0, 1.0, 0.4)),
+                    BorderRadius::all(Val::Px(5.0)),
+                    BackgroundColor(Color::srgba(0.1, 0.1, 0.1, 0.75)),
+                    VolumeMuteButton,
+                ))
+                .with_children(|btn| {
+                    btn.spawn((
+                        Text::new("♪ 50%"),
+                        TextFont { font_size: 13.0, ..default() },
+                        TextColor(COLOR_TEXT),
+                        VolumeDisplayText,
+                    ));
+                });
+
+            // ── Vol-up button ───────────────────────────────────────────────
+            parent
+                .spawn((
+                    Button,
+                    Node {
+                        width: Val::Px(32.0),
+                        height: Val::Px(32.0),
+                        justify_content: JustifyContent::Center,
+                        align_items: AlignItems::Center,
+                        border: UiRect::all(Val::Px(1.0)),
+                        ..default()
+                    },
+                    BorderColor(Color::srgba(1.0, 1.0, 1.0, 0.4)),
+                    BorderRadius::all(Val::Px(5.0)),
+                    BackgroundColor(Color::srgba(0.1, 0.1, 0.1, 0.75)),
+                    VolumeUpButton,
+                ))
+                .with_children(|btn| {
+                    btn.spawn((
+                        Text::new("+"),
+                        TextFont { font_size: 20.0, ..default() },
+                        TextColor(COLOR_TEXT),
+                    ));
+                });
+        });
 }
 
 fn setup_first_hole(
@@ -451,6 +534,7 @@ fn aim_and_shoot(
     window_q: Query<&Window, With<PrimaryWindow>>,
     camera_q: Query<(&Camera, &GlobalTransform)>,
     mouse: Res<ButtonInput<MouseButton>>,
+    touches: Res<Touches>,
     mut game_data: ResMut<GameData>,
 ) {
     let Ok((camera, cam_gt)) = camera_q.get_single() else {
@@ -474,9 +558,19 @@ fn aim_and_shoot(
         return;
     }
 
-    // Convert cursor from viewport → world space.
-    let cursor_world = window
+    // Convert cursor/touch from viewport → world space.
+    // Touches in the top-right UI area (volume buttons) are ignored so
+    // tapping those buttons never accidentally fires the ball.
+    let cursor_viewport = window
         .cursor_position()
+        .or_else(|| {
+            touches.iter().find(|t| {
+                let p = t.position();
+                !(p.x > window.width() - 145.0 && p.y < 50.0)
+            }).map(|t| t.position())
+        });
+
+    let cursor_world = cursor_viewport
         .and_then(|c| camera.viewport_to_world_2d(cam_gt, c).ok());
 
     let Some(cursor) = cursor_world else {
@@ -509,8 +603,14 @@ fn aim_and_shoot(
     arrow_tf.translation = arrow_center.extend(3.0);
     arrow_tf.rotation = Quat::from_rotation_z(angle);
 
-    // Shoot on left-click.
-    if mouse.just_pressed(MouseButton::Left) {
+    // Shoot on left-click or tap (taps in the UI area are already filtered above).
+    let just_shot = mouse.just_pressed(MouseButton::Left)
+        || touches.iter_just_pressed().any(|t| {
+            let p = t.position();
+            !(p.x > window.width() - 145.0 && p.y < 50.0)
+        });
+
+    if just_shot {
         let speed = (clamped_dist / MAX_AIM_DIST) * MAX_SPEED;
         ball.velocity = dir * speed;
         ball.moving = true;
@@ -664,10 +764,12 @@ fn detect_music_start(
     mut music_playing: ResMut<MusicPlaying>,
     mouse: Res<ButtonInput<MouseButton>>,
     keyboard: Res<ButtonInput<KeyCode>>,
+    touches: Res<Touches>,
 ) {
     if music_playing.0 { return; }
     if mouse.get_just_pressed().next().is_some()
         || keyboard.get_just_pressed().next().is_some()
+        || touches.iter_just_pressed().next().is_some()
     {
         music_playing.0 = true;
     }
@@ -784,7 +886,7 @@ fn volume_control(
 
 fn update_volume_text(
     vol: Res<MusicVolume>,
-    mut text_q: Query<&mut Text2d, With<VolumeText>>,
+    mut text_q: Query<&mut Text, With<VolumeDisplayText>>,
 ) {
     if !vol.is_changed() {
         return;
@@ -797,6 +899,61 @@ fn update_volume_text(
     } else {
         format!("♪ {}%", (vol.volume * 100.0).round() as u32)
     };
+}
+
+/// Handles taps/clicks on the on-screen volume buttons.
+fn volume_button_interaction(
+    down_q: Query<&Interaction, (Changed<Interaction>, With<VolumeDownButton>)>,
+    up_q: Query<&Interaction, (Changed<Interaction>, With<VolumeUpButton>)>,
+    mute_q: Query<&Interaction, (Changed<Interaction>, With<VolumeMuteButton>)>,
+    music_q: Query<&AudioSink>,
+    mut vol: ResMut<MusicVolume>,
+) {
+    let mut changed = false;
+
+    for interaction in &down_q {
+        if *interaction == Interaction::Pressed {
+            vol.volume = (vol.volume - 0.1).max(0.0);
+            vol.muted = false;
+            changed = true;
+        }
+    }
+    for interaction in &up_q {
+        if *interaction == Interaction::Pressed {
+            vol.volume = (vol.volume + 0.1).min(1.0);
+            vol.muted = false;
+            changed = true;
+        }
+    }
+    for interaction in &mute_q {
+        if *interaction == Interaction::Pressed {
+            vol.muted = !vol.muted;
+            changed = true;
+        }
+    }
+
+    if changed {
+        let effective = if vol.muted { 0.0 } else { vol.volume };
+        for sink in &music_q {
+            sink.set_volume(effective);
+        }
+    }
+}
+
+/// Gives visual press/hover feedback on the three volume buttons.
+fn volume_button_visual(
+    mut query: Query<
+        (&Interaction, &mut BackgroundColor),
+        Or<(With<VolumeDownButton>, With<VolumeUpButton>, With<VolumeMuteButton>)>,
+    >,
+) {
+    for (interaction, mut bg) in &mut query {
+        *bg = match interaction {
+            Interaction::Pressed  => BackgroundColor(Color::srgba(0.45, 0.45, 0.45, 0.95)),
+            Interaction::Hovered  => BackgroundColor(Color::srgba(0.25, 0.25, 0.25, 0.90)),
+            Interaction::None     => BackgroundColor(Color::srgba(0.10, 0.10, 0.10, 0.75)),
+        };
+    }
 }
 
 // ─── Hole-complete callback ───────────────────────────────────────────────────
