@@ -47,10 +47,6 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.toml') }}
           restore-keys: ${{ runner.os }}-cargo-
 
-      # ── wasm-opt (binaryen) ───────────────────────────────────────────────
-      - name: Install binaryen (wasm-opt)
-        run: sudo apt-get install -y binaryen
-
       # ── Trunk ─────────────────────────────────────────────────────────────
       - name: Install Trunk
         uses: jetli/trunk-action@v0.5.0
