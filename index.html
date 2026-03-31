@@ -4,6 +4,32 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Bevy Golf 🏌️</title>
+  <script>
+    // Intercept AudioContext creation to capture Bevy's instance and resume
+    // it on the first user gesture. Browsers suspend any AudioContext created
+    // before user interaction; calling .resume() inside a gesture handler is
+    // the only reliable way to unblock it.
+    (function () {
+      var Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return;
+      var _Orig = Ctx;
+      function PatchedCtx() {
+        var ctx = new (Function.prototype.bind.apply(_Orig, [null].concat(Array.prototype.slice.call(arguments))))();
+        window.__bevyAudioCtx = ctx;
+        return ctx;
+      }
+      PatchedCtx.prototype = _Orig.prototype;
+      window.AudioContext = PatchedCtx;
+      if (window.webkitAudioContext) window.webkitAudioContext = PatchedCtx;
+      function resume() {
+        if (window.__bevyAudioCtx && window.__bevyAudioCtx.state !== 'running') {
+          window.__bevyAudioCtx.resume();
+        }
+      }
+      document.addEventListener('click', resume);
+      document.addEventListener('keydown', resume);
+    })();
+  </script>
   <!-- Trunk will replace this link with the compiled WASM + JS bundle -->
   <link data-trunk rel="rust" />
   <!-- Copy the assets folder into the dist output -->

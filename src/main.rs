@@ -123,16 +123,6 @@ impl Default for MusicVolume {
     }
 }
 
-/// Tracks whether the music has been started after a user gesture.
-/// Browsers block AudioContext until the user interacts with the page.
-#[derive(Resource, Default)]
-struct AudioStarted(bool);
-
-/// Holds the preloaded audio handle so it is ready to play the moment
-/// the user first interacts with the page.
-#[derive(Resource)]
-struct MusicHandle(Handle<AudioSource>);
-
 #[derive(Resource, Default)]
 struct GameData {
     current_hole: usize,
@@ -220,7 +210,6 @@ fn main() {
         .init_state::<GameState>()
         .init_resource::<GameData>()
         .init_resource::<MusicVolume>()
-        .init_resource::<AudioStarted>()
         // ── Startup ─────────────────────────────────────────────────────────
         .add_systems(
             Startup,
@@ -235,7 +224,6 @@ fn main() {
                 update_score_text,
                 volume_control,
                 update_volume_text,
-                start_music_on_interaction,
             ),
         )
         // ── Transition countdown ─────────────────────────────────────────────
@@ -256,11 +244,14 @@ fn setup_camera(mut commands: Commands) {
 }
 
 fn setup_music(mut commands: Commands, asset_server: Res<AssetServer>) {
-    // Only preload the asset — do NOT spawn AudioPlayer yet.
-    // The AudioContext must not be created until after a user gesture
-    // or browsers will suspend it and music will never play.
-    let handle = asset_server.load("murderTrain.ogg");
-    commands.insert_resource(MusicHandle(handle));
+    commands.spawn((
+        AudioPlayer::new(asset_server.load("murderTrain.ogg")),
+        PlaybackSettings {
+            mode: PlaybackMode::Loop,
+            volume: Volume::new(0.5),
+            ..default()
+        },
+    ));
 }
 
 fn setup_background(mut commands: Commands) {
@@ -652,34 +643,6 @@ fn update_score_text(
 }
 
 // ─── Volume control ──────────────────────────────────────────────────────────
-
-fn start_music_on_interaction(
-    mut started: ResMut<AudioStarted>,
-    mouse: Res<ButtonInput<MouseButton>>,
-    keyboard: Res<ButtonInput<KeyCode>>,
-    mut commands: Commands,
-    music_handle: Res<MusicHandle>,
-    vol: Res<MusicVolume>,
-) {
-    if started.0 {
-        return;
-    }
-    let interacted = mouse.get_just_pressed().next().is_some()
-        || keyboard.get_just_pressed().next().is_some();
-    if interacted {
-        // Spawn the AudioPlayer here, after a user gesture, so the browser
-        // creates the AudioContext in an allowed (resumed) state.
-        commands.spawn((
-            AudioPlayer::new(music_handle.0.clone()),
-            PlaybackSettings {
-                mode: PlaybackMode::Loop,
-                volume: Volume::new(vol.volume),
-                ..default()
-            },
-        ));
-        started.0 = true;
-    }
-}
 
 fn volume_control(
     keyboard: Res<ButtonInput<KeyCode>>,
