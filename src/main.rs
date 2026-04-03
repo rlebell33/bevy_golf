@@ -7,7 +7,7 @@
 //!   - Tap / click in Shoot mode to fire at zombies
 //!   - Power = distance from ball to cursor (capped at MAX_AIM_DIST)
 //!
-//! There are 6 holes, with zombies chasing the ball from later holes onward.
+//! There are 21 holes, with zombies chasing the ball from later holes onward.
 
 use bevy::{asset::AssetMetaCheck, audio::{PlaybackMode, Volume}, prelude::*, window::PrimaryWindow};
 
@@ -33,7 +33,7 @@ const MAX_AIM_DIST: f32 = 140.0;
 /// Maps aim distance to initial speed (pixels/second).
 const MAX_SPEED: f32 = 620.0;
 
-const TOTAL_HOLES: usize = 6;
+const TOTAL_HOLES: usize = 21;
 const TOP_UI_EXCLUSION_HEIGHT: f32 = 58.0;
 const GUN_AIM_DIST: f32 = 110.0;
 const GUN_SPEED: f32 = 720.0;
@@ -42,6 +42,11 @@ const PROJECTILE_R: f32 = 5.0;
 const ZOMBIE_R: f32 = 14.0;
 const ZOMBIE_SPEED: f32 = 42.0;
 const DEATH_STROKE_PENALTY: u32 = 10;
+const SCORECARD_COLUMNS: usize = 7;
+const HIGHSCORE_LIMIT: usize = 5;
+const HIGHSCORE_STORAGE_VERSION: &str = "v1";
+#[cfg(target_arch = "wasm32")]
+const HIGHSCORE_STORAGE_KEY: &str = "bevy_golf_highscores_v1_h21";
 
 /// BPM of the background track — controls how fast the visuals pulse.
 const PULSE_BPM: f32 = 120.0;
@@ -129,6 +134,10 @@ struct MessageText;
 #[derive(Component)]
 struct GameOverText;
 
+/// Marks the on-screen restart button.
+#[derive(Component)]
+struct RestartButton;
+
 /// Marks the three on-screen volume buttons and their display text.
 #[derive(Component)] struct VolumeDownButton;
 #[derive(Component)] struct VolumeMuteButton;
@@ -185,18 +194,43 @@ struct GameData {
 #[derive(Resource)]
 struct TransitionTimer(Timer);
 
-#[derive(Resource, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Resource, Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum ActionMode {
     #[default]
     Golf,
     Gun,
 }
 
-#[derive(Resource, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Resource, Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum RunOutcome {
     #[default]
     Victory,
     Death,
+}
+
+#[derive(Resource, Default)]
+struct RestartRequest(bool);
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct HighscoreEntry {
+    total_strokes: u32,
+    total_par: u32,
+    score_diff: i32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum HighscoreStorageStatus {
+    #[default]
+    Ready,
+    Unavailable,
+    CorruptedData,
+    SaveFailed,
+}
+
+#[derive(Resource, Default)]
+struct HighscoreBoard {
+    entries: Vec<HighscoreEntry>,
+    status: HighscoreStorageStatus,
 }
 
 // ─── Hole definitions ────────────────────────────────────────────────────────
@@ -305,6 +339,281 @@ fn hole_configs() -> [HoleConfig; TOTAL_HOLES] {
                 Vec2::new(230.0, 118.0),
             ],
         },
+        // ── Hole 7 ── Long dogleg with split blockers, par 5 ─────────────────
+        HoleConfig {
+            ball_start: Vec2::new(-305.0, -96.0),
+            hole_pos: Vec2::new(298.0, 102.0),
+            par: 5,
+            course_center: Vec2::ZERO,
+            course_size: Vec2::new(730.0, 300.0),
+            obstacles: vec![
+                (Vec2::new(-180.0, 26.0), Vec2::new(30.0, 96.0)),
+                (Vec2::new(-35.0, -64.0), Vec2::new(32.0, 72.0)),
+                (Vec2::new(120.0, 54.0), Vec2::new(28.0, 86.0)),
+                (Vec2::new(230.0, -46.0), Vec2::new(26.0, 70.0)),
+            ],
+            zombies: vec![
+                Vec2::new(-105.0, 112.0),
+                Vec2::new(55.0, -112.0),
+                Vec2::new(240.0, 112.0),
+            ],
+        },
+        // ── Hole 8 ── Offset sprint lane, par 4 ──────────────────────────────
+        HoleConfig {
+            ball_start: Vec2::new(-295.0, 86.0),
+            hole_pos: Vec2::new(290.0, -88.0),
+            par: 4,
+            course_center: Vec2::ZERO,
+            course_size: Vec2::new(710.0, 240.0),
+            obstacles: vec![
+                (Vec2::new(-135.0, -32.0), Vec2::new(24.0, 76.0)),
+                (Vec2::new(5.0, 52.0), Vec2::new(30.0, 62.0)),
+                (Vec2::new(155.0, -48.0), Vec2::new(26.0, 80.0)),
+            ],
+            zombies: vec![Vec2::new(-20.0, -98.0), Vec2::new(188.0, 82.0)],
+        },
+        // ── Hole 9 ── Triple gate corridor, par 5 ────────────────────────────
+        HoleConfig {
+            ball_start: Vec2::new(-308.0, 0.0),
+            hole_pos: Vec2::new(304.0, 0.0),
+            par: 5,
+            course_center: Vec2::ZERO,
+            course_size: Vec2::new(736.0, 300.0),
+            obstacles: vec![
+                (Vec2::new(-200.0, 78.0), Vec2::new(24.0, 58.0)),
+                (Vec2::new(-200.0, -78.0), Vec2::new(24.0, 58.0)),
+                (Vec2::new(-30.0, 0.0), Vec2::new(28.0, 112.0)),
+                (Vec2::new(155.0, 82.0), Vec2::new(24.0, 56.0)),
+                (Vec2::new(155.0, -82.0), Vec2::new(24.0, 56.0)),
+            ],
+            zombies: vec![
+                Vec2::new(-118.0, 0.0),
+                Vec2::new(55.0, 118.0),
+                Vec2::new(58.0, -118.0),
+                Vec2::new(245.0, 0.0),
+            ],
+        },
+        // ── Hole 10 ── Zigzag alley with two pursuers, par 4 ─────────────────
+        HoleConfig {
+            ball_start: Vec2::new(-290.0, -90.0),
+            hole_pos: Vec2::new(282.0, 90.0),
+            par: 4,
+            course_center: Vec2::ZERO,
+            course_size: Vec2::new(700.0, 245.0),
+            obstacles: vec![
+                (Vec2::new(-165.0, 24.0), Vec2::new(28.0, 82.0)),
+                (Vec2::new(-20.0, -50.0), Vec2::new(28.0, 66.0)),
+                (Vec2::new(130.0, 34.0), Vec2::new(28.0, 82.0)),
+            ],
+            zombies: vec![Vec2::new(-72.0, 102.0), Vec2::new(172.0, -100.0)],
+        },
+        // ── Hole 11 ── Four-post slalom, par 5 ────────────────────────────────
+        HoleConfig {
+            ball_start: Vec2::new(-304.0, 100.0),
+            hole_pos: Vec2::new(292.0, -102.0),
+            par: 5,
+            course_center: Vec2::ZERO,
+            course_size: Vec2::new(728.0, 300.0),
+            obstacles: vec![
+                (Vec2::new(-205.0, -18.0), Vec2::new(24.0, 90.0)),
+                (Vec2::new(-65.0, 66.0), Vec2::new(24.0, 64.0)),
+                (Vec2::new(82.0, -58.0), Vec2::new(24.0, 64.0)),
+                (Vec2::new(220.0, 12.0), Vec2::new(24.0, 92.0)),
+            ],
+            zombies: vec![
+                Vec2::new(-130.0, -116.0),
+                Vec2::new(15.0, 116.0),
+                Vec2::new(190.0, -118.0),
+            ],
+        },
+        // ── Hole 12 ── Narrow center gate, par 4 ──────────────────────────────
+        HoleConfig {
+            ball_start: Vec2::new(-286.0, 0.0),
+            hole_pos: Vec2::new(284.0, 0.0),
+            par: 4,
+            course_center: Vec2::ZERO,
+            course_size: Vec2::new(690.0, 210.0),
+            obstacles: vec![
+                (Vec2::new(-82.0, 44.0), Vec2::new(30.0, 44.0)),
+                (Vec2::new(-82.0, -44.0), Vec2::new(30.0, 44.0)),
+                (Vec2::new(102.0, 0.0), Vec2::new(28.0, 88.0)),
+            ],
+            zombies: vec![Vec2::new(16.0, 86.0), Vec2::new(188.0, -82.0)],
+        },
+        // ── Hole 13 ── Cranked S-curve, par 5 ─────────────────────────────────
+        HoleConfig {
+            ball_start: Vec2::new(-306.0, -108.0),
+            hole_pos: Vec2::new(304.0, 108.0),
+            par: 5,
+            course_center: Vec2::ZERO,
+            course_size: Vec2::new(736.0, 308.0),
+            obstacles: vec![
+                (Vec2::new(-190.0, 8.0), Vec2::new(28.0, 94.0)),
+                (Vec2::new(-46.0, -74.0), Vec2::new(32.0, 62.0)),
+                (Vec2::new(102.0, 68.0), Vec2::new(32.0, 62.0)),
+                (Vec2::new(224.0, -6.0), Vec2::new(26.0, 96.0)),
+            ],
+            zombies: vec![
+                Vec2::new(-112.0, 118.0),
+                Vec2::new(42.0, -120.0),
+                Vec2::new(245.0, 118.0),
+            ],
+        },
+        // ── Hole 14 ── Short but crowded, par 4 ───────────────────────────────
+        HoleConfig {
+            ball_start: Vec2::new(-270.0, 70.0),
+            hole_pos: Vec2::new(264.0, -74.0),
+            par: 4,
+            course_center: Vec2::ZERO,
+            course_size: Vec2::new(650.0, 220.0),
+            obstacles: vec![
+                (Vec2::new(-120.0, -26.0), Vec2::new(26.0, 66.0)),
+                (Vec2::new(4.0, 40.0), Vec2::new(28.0, 56.0)),
+                (Vec2::new(135.0, -36.0), Vec2::new(24.0, 64.0)),
+            ],
+            zombies: vec![
+                Vec2::new(-24.0, -86.0),
+                Vec2::new(112.0, 86.0),
+                Vec2::new(220.0, 12.0),
+            ],
+        },
+        // ── Hole 15 ── Wide gauntlet, par 6 ────────────────────────────────────
+        HoleConfig {
+            ball_start: Vec2::new(-312.0, 0.0),
+            hole_pos: Vec2::new(308.0, 0.0),
+            par: 6,
+            course_center: Vec2::ZERO,
+            course_size: Vec2::new(744.0, 320.0),
+            obstacles: vec![
+                (Vec2::new(-230.0, 92.0), Vec2::new(24.0, 60.0)),
+                (Vec2::new(-160.0, -84.0), Vec2::new(24.0, 60.0)),
+                (Vec2::new(-40.0, 0.0), Vec2::new(30.0, 118.0)),
+                (Vec2::new(105.0, 92.0), Vec2::new(24.0, 60.0)),
+                (Vec2::new(175.0, -84.0), Vec2::new(24.0, 60.0)),
+                (Vec2::new(255.0, 0.0), Vec2::new(20.0, 104.0)),
+            ],
+            zombies: vec![
+                Vec2::new(-236.0, -126.0),
+                Vec2::new(-82.0, 126.0),
+                Vec2::new(64.0, -126.0),
+                Vec2::new(225.0, 124.0),
+            ],
+        },
+        // ── Hole 16 ── Split middle bunker, par 5 ─────────────────────────────
+        HoleConfig {
+            ball_start: Vec2::new(-300.0, -96.0),
+            hole_pos: Vec2::new(292.0, 98.0),
+            par: 5,
+            course_center: Vec2::ZERO,
+            course_size: Vec2::new(720.0, 280.0),
+            obstacles: vec![
+                (Vec2::new(-170.0, 24.0), Vec2::new(30.0, 82.0)),
+                (Vec2::new(-18.0, -54.0), Vec2::new(26.0, 70.0)),
+                (Vec2::new(88.0, 62.0), Vec2::new(26.0, 70.0)),
+                (Vec2::new(224.0, -18.0), Vec2::new(26.0, 92.0)),
+            ],
+            zombies: vec![
+                Vec2::new(-84.0, 108.0),
+                Vec2::new(32.0, -108.0),
+                Vec2::new(206.0, 108.0),
+            ],
+        },
+        // ── Hole 17 ── Center tower with flanks, par 5 ────────────────────────
+        HoleConfig {
+            ball_start: Vec2::new(-304.0, 94.0),
+            hole_pos: Vec2::new(302.0, -94.0),
+            par: 5,
+            course_center: Vec2::ZERO,
+            course_size: Vec2::new(730.0, 286.0),
+            obstacles: vec![
+                (Vec2::new(-182.0, -30.0), Vec2::new(24.0, 74.0)),
+                (Vec2::new(-12.0, 0.0), Vec2::new(34.0, 106.0)),
+                (Vec2::new(168.0, 28.0), Vec2::new(24.0, 74.0)),
+            ],
+            zombies: vec![
+                Vec2::new(-120.0, -112.0),
+                Vec2::new(18.0, 116.0),
+                Vec2::new(184.0, -112.0),
+                Vec2::new(258.0, 52.0),
+            ],
+        },
+        // ── Hole 18 ── Thin tunnel chase, par 4 ───────────────────────────────
+        HoleConfig {
+            ball_start: Vec2::new(-290.0, -22.0),
+            hole_pos: Vec2::new(286.0, 20.0),
+            par: 4,
+            course_center: Vec2::ZERO,
+            course_size: Vec2::new(700.0, 196.0),
+            obstacles: vec![
+                (Vec2::new(-140.0, 44.0), Vec2::new(26.0, 40.0)),
+                (Vec2::new(-12.0, -46.0), Vec2::new(28.0, 40.0)),
+                (Vec2::new(130.0, 44.0), Vec2::new(26.0, 40.0)),
+            ],
+            zombies: vec![Vec2::new(-20.0, 76.0), Vec2::new(162.0, -74.0)],
+        },
+        // ── Hole 19 ── Five-post endurance lane, par 6 ────────────────────────
+        HoleConfig {
+            ball_start: Vec2::new(-314.0, -108.0),
+            hole_pos: Vec2::new(308.0, 108.0),
+            par: 6,
+            course_center: Vec2::ZERO,
+            course_size: Vec2::new(748.0, 320.0),
+            obstacles: vec![
+                (Vec2::new(-230.0, 10.0), Vec2::new(24.0, 94.0)),
+                (Vec2::new(-105.0, -68.0), Vec2::new(24.0, 64.0)),
+                (Vec2::new(18.0, 72.0), Vec2::new(24.0, 64.0)),
+                (Vec2::new(145.0, -62.0), Vec2::new(24.0, 64.0)),
+                (Vec2::new(264.0, 6.0), Vec2::new(20.0, 96.0)),
+            ],
+            zombies: vec![
+                Vec2::new(-150.0, 122.0),
+                Vec2::new(-24.0, -122.0),
+                Vec2::new(124.0, 124.0),
+                Vec2::new(246.0, -118.0),
+            ],
+        },
+        // ── Hole 20 ── Penultimate squeeze, par 5 ─────────────────────────────
+        HoleConfig {
+            ball_start: Vec2::new(-300.0, 100.0),
+            hole_pos: Vec2::new(294.0, -102.0),
+            par: 5,
+            course_center: Vec2::ZERO,
+            course_size: Vec2::new(722.0, 292.0),
+            obstacles: vec![
+                (Vec2::new(-186.0, -18.0), Vec2::new(26.0, 82.0)),
+                (Vec2::new(-42.0, 68.0), Vec2::new(26.0, 58.0)),
+                (Vec2::new(108.0, -58.0), Vec2::new(26.0, 58.0)),
+                (Vec2::new(236.0, 14.0), Vec2::new(24.0, 88.0)),
+            ],
+            zombies: vec![
+                Vec2::new(-126.0, 116.0),
+                Vec2::new(18.0, -116.0),
+                Vec2::new(192.0, 114.0),
+            ],
+        },
+        // ── Hole 21 ── Final marathon gauntlet, par 6 ─────────────────────────
+        HoleConfig {
+            ball_start: Vec2::new(-316.0, 0.0),
+            hole_pos: Vec2::new(312.0, 0.0),
+            par: 6,
+            course_center: Vec2::ZERO,
+            course_size: Vec2::new(752.0, 328.0),
+            obstacles: vec![
+                (Vec2::new(-240.0, 98.0), Vec2::new(22.0, 58.0)),
+                (Vec2::new(-175.0, -92.0), Vec2::new(22.0, 58.0)),
+                (Vec2::new(-50.0, 0.0), Vec2::new(30.0, 122.0)),
+                (Vec2::new(95.0, 98.0), Vec2::new(22.0, 58.0)),
+                (Vec2::new(160.0, -92.0), Vec2::new(22.0, 58.0)),
+                (Vec2::new(270.0, 0.0), Vec2::new(18.0, 108.0)),
+            ],
+            zombies: vec![
+                Vec2::new(-248.0, -126.0),
+                Vec2::new(-92.0, 126.0),
+                Vec2::new(52.0, -126.0),
+                Vec2::new(206.0, 124.0),
+                Vec2::new(286.0, -18.0),
+            ],
+        },
     ]
 }
 
@@ -336,10 +645,19 @@ fn main() {
         .init_resource::<MusicPlaying>()
         .init_resource::<ActionMode>()
         .init_resource::<RunOutcome>()
+        .init_resource::<RestartRequest>()
+        .init_resource::<HighscoreBoard>()
         // ── Startup ─────────────────────────────────────────────────────────
         .add_systems(
             Startup,
-            (setup_camera, setup_background, setup_ui, setup_first_hole, setup_music).chain(),
+            (load_highscores, setup_camera, setup_background, setup_ui, setup_first_hole, setup_music).chain(),
+        )
+        .add_systems(
+            Update,
+            (
+                queue_restart_input,
+                restart_button_interaction,
+            ),
         )
         // ── Per-frame (Playing) ──────────────────────────────────────────────
         .add_systems(
@@ -363,26 +681,18 @@ fn main() {
                 action_mode_button_interaction,
                 volume_button_visual,
                 action_mode_button_visual,
+                restart_button_visual,
                 update_volume_text,
                 detect_music_start,
                 pulse_to_music.run_if(|mp: Res<MusicPlaying>| mp.0),
+                action_mode_keyboard_shortcuts.run_if(in_state(GameState::Playing)),
+                tick_transition.run_if(resource_exists::<TransitionTimer>),
             ),
-        )
-        // ── Transition countdown ─────────────────────────────────────────────
-        .add_systems(
-            Update,
-            tick_transition.run_if(resource_exists::<TransitionTimer>),
         )
         // ── State callbacks ──────────────────────────────────────────────────
         .add_systems(OnEnter(GameState::HoleComplete), on_hole_complete)
         .add_systems(OnEnter(GameState::GameOver), (cleanup_course_entities, on_game_over).chain())
-        .add_systems(
-            Update,
-            (
-                action_mode_keyboard_shortcuts.run_if(in_state(GameState::Playing)),
-                restart_after_game_over.run_if(in_state(GameState::GameOver)),
-            ),
-        )
+        .add_systems(PostUpdate, apply_restart_request)
         .run();
 }
 
@@ -417,7 +727,7 @@ fn setup_background(mut commands: Commands) {
 
 fn setup_ui(mut commands: Commands) {
     commands.spawn((
-        Text2d::new("Hole 1 / 6  |  Par 2  |  Strokes: 0"),
+        Text2d::new(format!("Hole 1 / {}  |  Par 2  |  Strokes: 0", TOTAL_HOLES)),
         TextFont {
             font_size: 20.0,
             ..default()
@@ -429,7 +739,7 @@ fn setup_ui(mut commands: Commands) {
 
     // Hint text at the bottom
     commands.spawn((
-        Text2d::new("Golf: swing ball [G]  |  Shoot: fire at zombies [S]  |  Tap/click to aim"),
+        Text2d::new("Golf: swing ball [G]  |  Shoot: fire at zombies [S]  |  Restart run [R]  |  Tap/click to aim"),
         TextFont {
             font_size: 15.0,
             ..default()
@@ -452,6 +762,7 @@ fn setup_ui(mut commands: Commands) {
         .with_children(|parent| {
             spawn_action_mode_button(parent, "Golf", ActionMode::Golf);
             spawn_action_mode_button(parent, "Shoot", ActionMode::Gun);
+            spawn_restart_button(parent);
         });
 
     // ── Volume buttons (Bevy UI — respond to both click and touch) ──────────
@@ -545,6 +856,35 @@ fn setup_ui(mut commands: Commands) {
         });
 }
 
+fn spawn_restart_button(parent: &mut ChildBuilder) {
+    parent
+        .spawn((
+            Button,
+            Node {
+                width: Val::Px(96.0),
+                height: Val::Px(32.0),
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                border: UiRect::all(Val::Px(1.0)),
+                ..default()
+            },
+            BorderColor(Color::srgba(1.0, 1.0, 1.0, 0.4)),
+            BorderRadius::all(Val::Px(5.0)),
+            BackgroundColor(Color::srgba(0.25, 0.10, 0.10, 0.80)),
+            RestartButton,
+        ))
+        .with_children(|btn| {
+            btn.spawn((
+                Text::new("Restart"),
+                TextFont {
+                    font_size: 15.0,
+                    ..default()
+                },
+                TextColor(COLOR_TEXT),
+            ));
+        });
+}
+
 fn spawn_action_mode_button(
     parent: &mut ChildBuilder,
     label: &'static str,
@@ -584,11 +924,7 @@ fn setup_first_hole(
     mut action_mode: ResMut<ActionMode>,
     mut outcome: ResMut<RunOutcome>,
 ) {
-    let configs = hole_configs();
-    game_data.strokes = vec![0u32; TOTAL_HOLES];
-    game_data.par = configs.iter().map(|h| h.par).collect();
-    *action_mode = ActionMode::Golf;
-    *outcome = RunOutcome::Victory;
+    initialize_run_state(&mut game_data, &mut action_mode, &mut outcome);
     spawn_hole(&mut commands, 0);
 }
 
@@ -1239,6 +1575,7 @@ fn apply_death_penalty(game_data: &mut GameData) {
 
 fn update_score_text(
     game_data: Res<GameData>,
+    highscores: Res<HighscoreBoard>,
     mut text_q: Query<&mut Text2d, With<ScoreText>>,
 ) {
     let Ok(mut text) = text_q.get_single_mut() else {
@@ -1247,12 +1584,18 @@ fn update_score_text(
     let hole = game_data.current_hole;
     let strokes = game_data.strokes.get(hole).copied().unwrap_or(0);
     let par = game_data.par.get(hole).copied().unwrap_or(0);
+    let best_suffix = highscores
+        .entries
+        .first()
+        .map(|entry| format!("  |  Best local: {}", entry.total_strokes))
+        .unwrap_or_default();
     text.0 = format!(
-        "Hole {} / {}  |  Par {}  |  Strokes: {}",
+        "Hole {} / {}  |  Par {}  |  Strokes: {}{}",
         hole + 1,
         TOTAL_HOLES,
         par,
         strokes,
+        best_suffix,
     );
 }
 
@@ -1508,6 +1851,18 @@ fn action_mode_button_visual(
     }
 }
 
+fn restart_button_visual(
+    mut query: Query<(&Interaction, &mut BackgroundColor), With<RestartButton>>,
+) {
+    for (interaction, mut bg) in &mut query {
+        *bg = match interaction {
+            Interaction::Pressed => BackgroundColor(Color::srgba(0.75, 0.20, 0.20, 0.95)),
+            Interaction::Hovered => BackgroundColor(Color::srgba(0.45, 0.18, 0.18, 0.90)),
+            Interaction::None => BackgroundColor(Color::srgba(0.25, 0.10, 0.10, 0.80)),
+        };
+    }
+}
+
 // ─── Hole-complete callback ───────────────────────────────────────────────────
 
 fn on_hole_complete(mut commands: Commands, game_data: Res<GameData>) {
@@ -1592,12 +1947,12 @@ fn cleanup_course_entities(
     }
 }
 
-fn restart_requested_on_game_over(keyboard: &ButtonInput<KeyCode>) -> bool {
-    keyboard.just_pressed(KeyCode::KeyR) || keyboard.just_pressed(KeyCode::Enter)
+fn restart_requested(keyboard: &ButtonInput<KeyCode>, game_state: &GameState) -> bool {
+    keyboard.just_pressed(KeyCode::KeyR)
+        || (*game_state == GameState::GameOver && keyboard.just_pressed(KeyCode::Enter))
 }
 
-fn reset_run(
-    commands: &mut Commands,
+fn initialize_run_state(
     game_data: &mut GameData,
     action_mode: &mut ActionMode,
     outcome: &mut RunOutcome,
@@ -1608,55 +1963,141 @@ fn reset_run(
     game_data.par = configs.iter().map(|h| h.par).collect();
     *action_mode = ActionMode::Golf;
     *outcome = RunOutcome::Victory;
+}
+
+fn reset_run(
+    commands: &mut Commands,
+    game_data: &mut GameData,
+    action_mode: &mut ActionMode,
+    outcome: &mut RunOutcome,
+) {
+    initialize_run_state(game_data, action_mode, outcome);
     spawn_hole(commands, 0);
 }
 
-fn restart_after_game_over(
-    mut commands: Commands,
+fn queue_restart_input(
     keyboard: Res<ButtonInput<KeyCode>>,
+    game_state: Res<State<GameState>>,
+    mut restart_request: ResMut<RestartRequest>,
+) {
+    if restart_requested(&keyboard, game_state.get()) {
+        restart_request.0 = true;
+    }
+}
+
+fn restart_button_interaction(
+    query: Query<&Interaction, (Changed<Interaction>, With<RestartButton>)>,
+    mut restart_request: ResMut<RestartRequest>,
+) {
+    for interaction in &query {
+        if *interaction == Interaction::Pressed {
+            restart_request.0 = true;
+        }
+    }
+}
+
+fn apply_restart_request(
+    mut commands: Commands,
+    mut restart_request: ResMut<RestartRequest>,
     mut game_data: ResMut<GameData>,
     mut action_mode: ResMut<ActionMode>,
     mut outcome: ResMut<RunOutcome>,
     mut next_state: ResMut<NextState<GameState>>,
+    course_q: Query<Entity, With<CourseEntity>>,
+    message_q: Query<Entity, With<MessageText>>,
     game_over_q: Query<Entity, With<GameOverText>>,
 ) {
-    if !restart_requested_on_game_over(&keyboard) {
+    if !restart_request.0 {
         return;
     }
 
+    for entity in &course_q {
+        commands.entity(entity).despawn();
+    }
+    for entity in &message_q {
+        commands.entity(entity).despawn();
+    }
     for entity in &game_over_q {
         commands.entity(entity).despawn();
     }
+    commands.remove_resource::<TransitionTimer>();
 
     reset_run(&mut commands, &mut game_data, &mut action_mode, &mut outcome);
     next_state.set(GameState::Playing);
+    restart_request.0 = false;
 }
 
-fn game_over_message(game_data: &GameData, outcome: RunOutcome) -> String {
-    let total_strokes: u32 = game_data.strokes.iter().sum();
-    let total_par: u32 = game_data.par.iter().sum();
-    let diff = total_strokes as i32 - total_par as i32;
-
-    let diff_str = match diff.cmp(&0) {
-        std::cmp::Ordering::Less => format!("{} under par", -diff),
-        std::cmp::Ordering::Equal => "Even par".to_string(),
-        std::cmp::Ordering::Greater => format!("{} over par", diff),
-    };
-
-    let scorecard: String = game_data
+fn compact_scorecard(game_data: &GameData) -> String {
+    game_data
         .strokes
         .iter()
         .zip(game_data.par.iter())
         .enumerate()
-        .map(|(i, (&s, &p))| format!("  Hole {}:  {} strokes  (par {})", i + 1, s, p))
+        .map(|(index, (&strokes, &par))| format!("H{:02} {}/{}", index + 1, strokes, par))
         .collect::<Vec<_>>()
-        .join("\n");
+        .chunks(SCORECARD_COLUMNS)
+        .map(|chunk| chunk.join("  "))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
 
-    let restart_hint = "\n\nPress R or Enter to restart.";
+fn score_diff_text(diff: i32) -> String {
+    match diff.cmp(&0) {
+        std::cmp::Ordering::Less => format!("{} under par", -diff),
+        std::cmp::Ordering::Equal => "Even par".to_string(),
+        std::cmp::Ordering::Greater => format!("{} over par", diff),
+    }
+}
+
+fn leaderboard_notice(status: HighscoreStorageStatus) -> Option<&'static str> {
+    match status {
+        HighscoreStorageStatus::Ready => None,
+        HighscoreStorageStatus::Unavailable => Some("Browser local storage unavailable: highscores won't persist here."),
+        HighscoreStorageStatus::CorruptedData => Some("Stored highscores were reset because saved data was incompatible or corrupt."),
+        HighscoreStorageStatus::SaveFailed => Some("Could not save this run to browser local storage."),
+    }
+}
+
+fn leaderboard_text(board: &HighscoreBoard) -> String {
+    let mut lines = vec!["Local Highscores (completed runs only)".to_string()];
+
+    if board.entries.is_empty() {
+        lines.push("  No local winning runs saved yet.".to_string());
+    } else {
+        for (index, entry) in board.entries.iter().enumerate() {
+            lines.push(format!(
+                "  {}. {} strokes  ({})",
+                index + 1,
+                entry.total_strokes,
+                score_diff_text(entry.score_diff)
+            ));
+        }
+    }
+
+    if let Some(notice) = leaderboard_notice(board.status) {
+        lines.push(String::new());
+        lines.push(notice.to_string());
+    }
+
+    lines.join("\n")
+}
+
+fn game_over_message(game_data: &GameData, outcome: RunOutcome, highscores: &HighscoreBoard) -> String {
+    let total_strokes: u32 = game_data.strokes.iter().sum();
+    let total_par: u32 = game_data.par.iter().sum();
+    let diff = total_strokes as i32 - total_par as i32;
+    let diff_str = score_diff_text(diff);
+    let scorecard = compact_scorecard(game_data);
+    let restart_hint = "\n\nPress R anytime to restart.\nPress Enter on this screen to restart too.";
     let (title, summary) = match outcome {
         RunOutcome::Victory => (
             "🏆  Game Complete!",
-            format!("Total: {} strokes  —  {}", total_strokes, diff_str),
+            format!(
+                "Completed {} holes.\nTotal: {} strokes  —  {}",
+                TOTAL_HOLES,
+                total_strokes,
+                diff_str
+            ),
         ),
         RunOutcome::Death => (
             "💀  You have died!",
@@ -1669,22 +2110,180 @@ fn game_over_message(game_data: &GameData, outcome: RunOutcome) -> String {
         ),
     };
 
-    format!("{title}\n\n{scorecard}\n\n{summary}{restart_hint}")
+    format!(
+        "{title}\n\n{summary}\n\nScorecard (strokes/par)\n{scorecard}\n\n{}\n{restart_hint}",
+        leaderboard_text(highscores)
+    )
+}
+
+fn highscore_entry_from_game(game_data: &GameData) -> HighscoreEntry {
+    let total_strokes: u32 = game_data.strokes.iter().sum();
+    let total_par: u32 = game_data.par.iter().sum();
+    HighscoreEntry {
+        total_strokes,
+        total_par,
+        score_diff: total_strokes as i32 - total_par as i32,
+    }
+}
+
+fn insert_highscore(entries: &mut Vec<HighscoreEntry>, entry: HighscoreEntry) {
+    entries.push(entry);
+    entries.sort_by(|left, right| {
+        left.total_strokes
+            .cmp(&right.total_strokes)
+            .then(left.score_diff.cmp(&right.score_diff))
+            .then(left.total_par.cmp(&right.total_par))
+    });
+    entries.truncate(HIGHSCORE_LIMIT);
+}
+
+fn serialize_highscores(entries: &[HighscoreEntry]) -> String {
+    let rows = entries
+        .iter()
+        .map(|entry| format!("{},{},{}", entry.total_strokes, entry.total_par, entry.score_diff))
+        .collect::<Vec<_>>()
+        .join(";");
+    format!("{HIGHSCORE_STORAGE_VERSION}|{TOTAL_HOLES}|{rows}")
+}
+
+fn parse_highscores(raw: &str) -> Result<Vec<HighscoreEntry>, ()> {
+    let mut parts = raw.split('|');
+    let Some(version) = parts.next() else {
+        return Err(());
+    };
+    let Some(hole_count) = parts.next() else {
+        return Err(());
+    };
+    let Some(entries_blob) = parts.next() else {
+        return Err(());
+    };
+    if parts.next().is_some() {
+        return Err(());
+    }
+    if version != HIGHSCORE_STORAGE_VERSION {
+        return Err(());
+    }
+    let parsed_holes = hole_count.parse::<usize>().map_err(|_| ())?;
+    if parsed_holes != TOTAL_HOLES {
+        return Err(());
+    }
+    if entries_blob.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut entries = Vec::new();
+    for row in entries_blob.split(';') {
+        let mut fields = row.split(',');
+        let total_strokes = fields.next().ok_or(())?.parse::<u32>().map_err(|_| ())?;
+        let total_par = fields.next().ok_or(())?.parse::<u32>().map_err(|_| ())?;
+        let score_diff = fields.next().ok_or(())?.parse::<i32>().map_err(|_| ())?;
+        if fields.next().is_some() {
+            return Err(());
+        }
+        entries.push(HighscoreEntry {
+            total_strokes,
+            total_par,
+            score_diff,
+        });
+    }
+
+    entries.sort_by(|left, right| {
+        left.total_strokes
+            .cmp(&right.total_strokes)
+            .then(left.score_diff.cmp(&right.score_diff))
+            .then(left.total_par.cmp(&right.total_par))
+    });
+    entries.truncate(HIGHSCORE_LIMIT);
+    Ok(entries)
+}
+
+#[cfg(target_arch = "wasm32")]
+fn load_highscores_from_storage() -> Result<Option<String>, HighscoreStorageStatus> {
+    let window = web_sys::window().ok_or(HighscoreStorageStatus::Unavailable)?;
+    let storage = window
+        .local_storage()
+        .map_err(|_| HighscoreStorageStatus::Unavailable)?
+        .ok_or(HighscoreStorageStatus::Unavailable)?;
+    storage
+        .get_item(HIGHSCORE_STORAGE_KEY)
+        .map_err(|_| HighscoreStorageStatus::Unavailable)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn load_highscores_from_storage() -> Result<Option<String>, HighscoreStorageStatus> {
+    Err(HighscoreStorageStatus::Unavailable)
+}
+
+#[cfg(target_arch = "wasm32")]
+fn save_highscores_to_storage(serialized: &str) -> Result<(), HighscoreStorageStatus> {
+    let window = web_sys::window().ok_or(HighscoreStorageStatus::SaveFailed)?;
+    let storage = window
+        .local_storage()
+        .map_err(|_| HighscoreStorageStatus::SaveFailed)?
+        .ok_or(HighscoreStorageStatus::SaveFailed)?;
+    storage
+        .set_item(HIGHSCORE_STORAGE_KEY, serialized)
+        .map_err(|_| HighscoreStorageStatus::SaveFailed)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn save_highscores_to_storage(_serialized: &str) -> Result<(), HighscoreStorageStatus> {
+    Err(HighscoreStorageStatus::Unavailable)
+}
+
+fn load_highscores(mut highscores: ResMut<HighscoreBoard>) {
+    match load_highscores_from_storage() {
+        Ok(Some(raw)) => match parse_highscores(&raw) {
+            Ok(entries) => {
+                highscores.entries = entries;
+                highscores.status = HighscoreStorageStatus::Ready;
+            }
+            Err(_) => {
+                highscores.entries.clear();
+                highscores.status = HighscoreStorageStatus::CorruptedData;
+                let _ = save_highscores_to_storage(&serialize_highscores(&highscores.entries));
+            }
+        },
+        Ok(None) => {
+            highscores.entries.clear();
+            highscores.status = HighscoreStorageStatus::Ready;
+        }
+        Err(status) => {
+            highscores.entries.clear();
+            highscores.status = status;
+        }
+    }
+}
+
+fn record_victory_highscore(highscores: &mut HighscoreBoard, game_data: &GameData) {
+    let entry = highscore_entry_from_game(game_data);
+    insert_highscore(&mut highscores.entries, entry);
+
+    match save_highscores_to_storage(&serialize_highscores(&highscores.entries)) {
+        Ok(()) => highscores.status = HighscoreStorageStatus::Ready,
+        Err(HighscoreStorageStatus::Unavailable) => highscores.status = HighscoreStorageStatus::Unavailable,
+        Err(_) => highscores.status = HighscoreStorageStatus::SaveFailed,
+    }
 }
 
 fn on_game_over(
     mut commands: Commands,
     game_data: Res<GameData>,
     outcome: Res<RunOutcome>,
+    mut highscores: ResMut<HighscoreBoard>,
 ) {
+    if *outcome == RunOutcome::Victory {
+        record_victory_highscore(&mut highscores, &game_data);
+    }
+
     commands.spawn((
-        Text2d::new(game_over_message(&game_data, *outcome)),
+        Text2d::new(game_over_message(&game_data, *outcome, &highscores)),
         TextFont {
-            font_size: 24.0,
+            font_size: 18.0,
             ..default()
         },
         TextColor(COLOR_GOLD),
-        Transform::from_xyz(0.0, 30.0, 20.0),
+        Transform::from_xyz(0.0, 38.0, 20.0),
         GameOverText,
     ));
 }
@@ -1697,13 +2296,14 @@ mod tests {
     fn death_penalty_applies_to_current_and_remaining_holes() {
         let mut game_data = GameData {
             current_hole: 2,
-            strokes: vec![2, 3, 1, 0, 0, 0],
-            par: vec![2, 3, 4, 4, 5, 5],
+            strokes: vec![2, 3, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            par: vec![2, 3, 4, 4, 5, 5, 5, 4, 5, 4, 5, 4, 5, 4, 6, 5, 5, 4, 6, 5, 6],
         };
 
         apply_death_penalty(&mut game_data);
 
-        assert_eq!(game_data.strokes, vec![2, 3, 11, 10, 10, 10]);
+        assert_eq!(game_data.strokes[0..6], [2, 3, 11, 10, 10, 10]);
+        assert!(game_data.strokes[6..].iter().all(|strokes| *strokes == 10));
     }
 
     #[test]
@@ -1754,27 +2354,111 @@ mod tests {
     fn restart_available_for_all_game_over_outcomes() {
         let mut keyboard = ButtonInput::<KeyCode>::default();
         keyboard.press(KeyCode::KeyR);
-        assert!(restart_requested_on_game_over(&keyboard));
+        assert!(restart_requested(&keyboard, &GameState::Playing));
 
         let mut keyboard = ButtonInput::<KeyCode>::default();
         keyboard.press(KeyCode::Enter);
-        assert!(restart_requested_on_game_over(&keyboard));
+        assert!(restart_requested(&keyboard, &GameState::GameOver));
+        assert!(!restart_requested(&keyboard, &GameState::Playing));
     }
 
     #[test]
     fn game_over_messages_include_restart_hint_for_both_outcomes() {
         let game_data = GameData {
             current_hole: 3,
-            strokes: vec![2, 3, 5, 14, 10, 10],
-            par: vec![2, 3, 4, 4, 5, 5],
+            strokes: vec![2, 3, 5, 14, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10],
+            par: vec![2, 3, 4, 4, 5, 5, 5, 4, 5, 4, 5, 4, 5, 4, 6, 5, 5, 4, 6, 5, 6],
+        };
+        let highscores = HighscoreBoard {
+            entries: vec![HighscoreEntry {
+                total_strokes: 90,
+                total_par: 96,
+                score_diff: -6,
+            }],
+            status: HighscoreStorageStatus::Ready,
         };
 
-        let death_msg = game_over_message(&game_data, RunOutcome::Death);
-        let victory_msg = game_over_message(&game_data, RunOutcome::Victory);
+        let death_msg = game_over_message(&game_data, RunOutcome::Death, &highscores);
+        let victory_msg = game_over_message(&game_data, RunOutcome::Victory, &highscores);
 
-        assert!(death_msg.contains("Press R or Enter to restart."));
-        assert!(victory_msg.contains("Press R or Enter to restart."));
+        assert!(death_msg.contains("Press R anytime to restart."));
+        assert!(victory_msg.contains("Press Enter on this screen"));
         assert!(death_msg.contains("You have died!"));
         assert!(death_msg.contains("Death penalty"));
+        assert!(victory_msg.contains("Local Highscores"));
+        assert!(victory_msg.contains("H01 2/2"));
+    }
+
+    #[test]
+    fn run_state_initialization_resets_progress() {
+        let mut game_data = GameData {
+            current_hole: 12,
+            strokes: vec![7; TOTAL_HOLES],
+            par: vec![1; TOTAL_HOLES],
+        };
+        let mut action_mode = ActionMode::Gun;
+        let mut outcome = RunOutcome::Death;
+
+        initialize_run_state(&mut game_data, &mut action_mode, &mut outcome);
+
+        assert_eq!(game_data.current_hole, 0);
+        assert_eq!(game_data.strokes, vec![0; TOTAL_HOLES]);
+        assert_eq!(game_data.par.len(), TOTAL_HOLES);
+        assert_eq!(action_mode, ActionMode::Golf);
+        assert_eq!(outcome, RunOutcome::Victory);
+    }
+
+    #[test]
+    fn hole_configs_cover_twenty_one_holes_and_fit_courses() {
+        let holes = hole_configs();
+
+        assert_eq!(holes.len(), TOTAL_HOLES);
+
+        for hole in holes {
+            let min = hole.course_center - hole.course_size / 2.0;
+            let max = hole.course_center + hole.course_size / 2.0;
+
+            assert!(hole.ball_start.x >= min.x + BALL_R && hole.ball_start.x <= max.x - BALL_R);
+            assert!(hole.ball_start.y >= min.y + BALL_R && hole.ball_start.y <= max.y - BALL_R);
+            assert!(hole.hole_pos.x >= min.x + HOLE_R && hole.hole_pos.x <= max.x - HOLE_R);
+            assert!(hole.hole_pos.y >= min.y + HOLE_R && hole.hole_pos.y <= max.y - HOLE_R);
+
+            for (obs_center, obs_half) in hole.obstacles {
+                assert!(obs_center.x - obs_half.x >= min.x);
+                assert!(obs_center.x + obs_half.x <= max.x);
+                assert!(obs_center.y - obs_half.y >= min.y);
+                assert!(obs_center.y + obs_half.y <= max.y);
+            }
+        }
+    }
+
+    #[test]
+    fn highscores_round_trip_and_rank_best_completed_runs() {
+        let mut entries = vec![
+            HighscoreEntry { total_strokes: 104, total_par: 96, score_diff: 8 },
+            HighscoreEntry { total_strokes: 88, total_par: 96, score_diff: -8 },
+        ];
+        insert_highscore(
+            &mut entries,
+            HighscoreEntry {
+                total_strokes: 92,
+                total_par: 96,
+                score_diff: -4,
+            },
+        );
+
+        let serialized = serialize_highscores(&entries);
+        let parsed = parse_highscores(&serialized).expect("valid highscores should parse");
+
+        assert_eq!(parsed[0].total_strokes, 88);
+        assert_eq!(parsed[1].total_strokes, 92);
+        assert_eq!(parsed[2].total_strokes, 104);
+    }
+
+    #[test]
+    fn invalid_highscore_blob_is_rejected() {
+        assert!(parse_highscores("v0|21|90,96,-6").is_err());
+        assert!(parse_highscores("v1|6|90,96,-6").is_err());
+        assert!(parse_highscores("v1|21|oops").is_err());
     }
 }
