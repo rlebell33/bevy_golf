@@ -125,6 +125,10 @@ struct ScoreText;
 #[derive(Component)]
 struct MessageText;
 
+/// Overlay shown on the game-over screen.
+#[derive(Component)]
+struct GameOverText;
+
 /// Marks the three on-screen volume buttons and their display text.
 #[derive(Component)] struct VolumeDownButton;
 #[derive(Component)] struct VolumeMuteButton;
@@ -372,6 +376,13 @@ fn main() {
         // ── State callbacks ──────────────────────────────────────────────────
         .add_systems(OnEnter(GameState::HoleComplete), on_hole_complete)
         .add_systems(OnEnter(GameState::GameOver), (cleanup_course_entities, on_game_over).chain())
+        .add_systems(
+            Update,
+            (
+                action_mode_keyboard_shortcuts.run_if(in_state(GameState::Playing)),
+                restart_after_game_over.run_if(in_state(GameState::GameOver)),
+            ),
+        )
         .run();
 }
 
@@ -418,7 +429,7 @@ fn setup_ui(mut commands: Commands) {
 
     // Hint text at the bottom
     commands.spawn((
-        Text2d::new("Golf: swing ball  |  Shoot: fire at zombies  |  Tap/click to aim"),
+        Text2d::new("Golf: swing ball [G]  |  Shoot: fire at zombies [S]  |  Tap/click to aim"),
         TextFont {
             font_size: 15.0,
             ..default()
@@ -1371,6 +1382,33 @@ fn volume_control(
     }
 }
 
+fn action_mode_shortcut(
+    keyboard: &ButtonInput<KeyCode>,
+    game_state: &GameState,
+) -> Option<ActionMode> {
+    if *game_state != GameState::Playing {
+        return None;
+    }
+
+    if keyboard.just_pressed(KeyCode::KeyG) {
+        Some(ActionMode::Golf)
+    } else if keyboard.just_pressed(KeyCode::KeyS) {
+        Some(ActionMode::Gun)
+    } else {
+        None
+    }
+}
+
+fn action_mode_keyboard_shortcuts(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    game_state: Res<State<GameState>>,
+    mut action_mode: ResMut<ActionMode>,
+) {
+    if let Some(next_mode) = action_mode_shortcut(&keyboard, game_state.get()) {
+        *action_mode = next_mode;
+    }
+}
+
 fn update_volume_text(
     vol: Res<MusicVolume>,
     mut text_q: Query<&mut Text, With<VolumeDisplayText>>,
@@ -1554,11 +1592,47 @@ fn cleanup_course_entities(
     }
 }
 
-fn on_game_over(
-    mut commands: Commands,
-    game_data: Res<GameData>,
-    outcome: Res<RunOutcome>,
+fn restart_requested_on_game_over(keyboard: &ButtonInput<KeyCode>) -> bool {
+    keyboard.just_pressed(KeyCode::KeyR) || keyboard.just_pressed(KeyCode::Enter)
+}
+
+fn reset_run(
+    commands: &mut Commands,
+    game_data: &mut GameData,
+    action_mode: &mut ActionMode,
+    outcome: &mut RunOutcome,
 ) {
+    let configs = hole_configs();
+    game_data.current_hole = 0;
+    game_data.strokes = vec![0u32; TOTAL_HOLES];
+    game_data.par = configs.iter().map(|h| h.par).collect();
+    *action_mode = ActionMode::Golf;
+    *outcome = RunOutcome::Victory;
+    spawn_hole(commands, 0);
+}
+
+fn restart_after_game_over(
+    mut commands: Commands,
+    keyboard: Res<ButtonInput<KeyCode>>,
+    mut game_data: ResMut<GameData>,
+    mut action_mode: ResMut<ActionMode>,
+    mut outcome: ResMut<RunOutcome>,
+    mut next_state: ResMut<NextState<GameState>>,
+    game_over_q: Query<Entity, With<GameOverText>>,
+) {
+    if !restart_requested_on_game_over(&keyboard) {
+        return;
+    }
+
+    for entity in &game_over_q {
+        commands.entity(entity).despawn();
+    }
+
+    reset_run(&mut commands, &mut game_data, &mut action_mode, &mut outcome);
+    next_state.set(GameState::Playing);
+}
+
+fn game_over_message(game_data: &GameData, outcome: RunOutcome) -> String {
     let total_strokes: u32 = game_data.strokes.iter().sum();
     let total_par: u32 = game_data.par.iter().sum();
     let diff = total_strokes as i32 - total_par as i32;
@@ -1578,7 +1652,8 @@ fn on_game_over(
         .collect::<Vec<_>>()
         .join("\n");
 
-    let (title, summary) = match *outcome {
+    let restart_hint = "\n\nPress R or Enter to restart.";
+    let (title, summary) = match outcome {
         RunOutcome::Victory => (
             "🏆  Game Complete!",
             format!("Total: {} strokes  —  {}", total_strokes, diff_str),
@@ -1594,16 +1669,23 @@ fn on_game_over(
         ),
     };
 
-    let msg = format!("{title}\n\n{scorecard}\n\n{summary}");
+    format!("{title}\n\n{scorecard}\n\n{summary}{restart_hint}")
+}
 
+fn on_game_over(
+    mut commands: Commands,
+    game_data: Res<GameData>,
+    outcome: Res<RunOutcome>,
+) {
     commands.spawn((
-        Text2d::new(msg),
+        Text2d::new(game_over_message(&game_data, *outcome)),
         TextFont {
             font_size: 24.0,
             ..default()
         },
         TextColor(COLOR_GOLD),
         Transform::from_xyz(0.0, 30.0, 20.0),
+        GameOverText,
     ));
 }
 
@@ -1647,5 +1729,52 @@ mod tests {
         assert!(hole_completion_pending(&NextState::Pending(GameState::HoleComplete)));
         assert!(!hole_completion_pending(&NextState::Pending(GameState::GameOver)));
         assert!(!hole_completion_pending(&NextState::Unchanged));
+    }
+
+    #[test]
+    fn action_mode_shortcuts_only_apply_during_playing() {
+        let mut keyboard = ButtonInput::<KeyCode>::default();
+        keyboard.press(KeyCode::KeyG);
+        assert_eq!(
+            action_mode_shortcut(&keyboard, &GameState::Playing),
+            Some(ActionMode::Golf)
+        );
+        assert_eq!(action_mode_shortcut(&keyboard, &GameState::HoleComplete), None);
+
+        let mut keyboard = ButtonInput::<KeyCode>::default();
+        keyboard.press(KeyCode::KeyS);
+        assert_eq!(
+            action_mode_shortcut(&keyboard, &GameState::Playing),
+            Some(ActionMode::Gun)
+        );
+        assert_eq!(action_mode_shortcut(&keyboard, &GameState::GameOver), None);
+    }
+
+    #[test]
+    fn restart_available_for_all_game_over_outcomes() {
+        let mut keyboard = ButtonInput::<KeyCode>::default();
+        keyboard.press(KeyCode::KeyR);
+        assert!(restart_requested_on_game_over(&keyboard));
+
+        let mut keyboard = ButtonInput::<KeyCode>::default();
+        keyboard.press(KeyCode::Enter);
+        assert!(restart_requested_on_game_over(&keyboard));
+    }
+
+    #[test]
+    fn game_over_messages_include_restart_hint_for_both_outcomes() {
+        let game_data = GameData {
+            current_hole: 3,
+            strokes: vec![2, 3, 5, 14, 10, 10],
+            par: vec![2, 3, 4, 4, 5, 5],
+        };
+
+        let death_msg = game_over_message(&game_data, RunOutcome::Death);
+        let victory_msg = game_over_message(&game_data, RunOutcome::Victory);
+
+        assert!(death_msg.contains("Press R or Enter to restart."));
+        assert!(victory_msg.contains("Press R or Enter to restart."));
+        assert!(death_msg.contains("You have died!"));
+        assert!(death_msg.contains("Death penalty"));
     }
 }
